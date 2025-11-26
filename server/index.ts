@@ -49,15 +49,22 @@ const clients = new Map<number, WebSocket>();
 
 // Gestion de l'upgrade WebSocket
 server.on('upgrade', (request, socket, head) => {
+  console.log('🔵 WebSocket upgrade request received');
+  console.log('URL:', request.url);
+  console.log('Headers:', request.headers);
+  
   sessionParser(request as any, {} as any, () => {
     const session = (request as any).session;
+    console.log('Session:', session);
     
     if (!session?.userId) {
+      console.log('❌ No userId in session, rejecting connection');
       socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
       socket.destroy();
       return;
     }
 
+    console.log('✅ Session valid, upgrading connection for user:', session.userId);
     wss.handleUpgrade(request, socket, head, (ws) => {
       wss.emit('connection', ws, request);
     });
@@ -67,12 +74,18 @@ server.on('upgrade', (request, socket, head) => {
 wss.on('connection', (ws, req) => {
   // Utiliser le sessionParser pour obtenir la session
   const session = (req as any).session;
+  console.log('🟢 WebSocket connected for user:', session.userId);
   
   // Stocker la connexion WebSocket avec l'ID de l'utilisateur
   clients.set(session.userId, ws);
 
   ws.on('close', () => {
+    console.log('🔴 WebSocket disconnected for user:', session.userId);
     clients.delete(session.userId);
+  });
+
+  ws.on('error', (error) => {
+    console.error('❌ WebSocket error for user:', session.userId, error);
   });
 });
 
@@ -137,6 +150,7 @@ app.use((req, res, next) => {
     host,
   }, () => {
     log(`serving on port ${port}`);
+    log(`WebSocket available at ws${host === '0.0.0.0' ? 's' : ''}://${host}:${port}/ws`);
   });
 })();
 
