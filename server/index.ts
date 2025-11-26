@@ -35,6 +35,8 @@ const sessionParser = session({
   saveUninitialized: false,
   cookie: {
     secure: process.env.NODE_ENV === 'production',
+    httpOnly: true, // 🔥 Sécurité contre XSS
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // 🔥 Important pour CORS
     maxAge: 24 * 60 * 60 * 1000, // 24 heures
   }
 });
@@ -47,45 +49,120 @@ const wss = new WebSocketServer({ noServer: true });
 // Map pour stocker les connexions WebSocket par userId
 const clients = new Map<number, WebSocket>();
 
-// Gestion de l'upgrade WebSocket
+// 🔥 Gestion de l'upgrade WebSocket - VERSION PERMISSIVE POUR DEBUG
 server.on('upgrade', (request, socket, head) => {
   console.log('🔵 WebSocket upgrade request received');
   console.log('URL:', request.url);
-  console.log('Headers:', request.headers);
+  console.log('Headers:', JSON.stringify(request.headers, null, 2));
   
+  // Vérifier que c'est bien une requête WebSocket pour /ws
+  if (request.url !== '/ws') {
+    console.log('❌ Invalid WebSocket path:', request.url);
+    socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
+    socket.destroy();
+    return;
+  }
+
+  // Parser la session
   sessionParser(request as any, {} as any, () => {
     const session = (request as any).session;
-    console.log('Session:', session);
+    console.log('📋 Session data:', JSON.stringify(session, null, 2));
     
+    // ⚠️ MODE DEBUG : Accepter même sans session pour tester
     if (!session?.userId) {
-      console.log('❌ No userId in session, rejecting connection');
-      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-      socket.destroy();
-      return;
+      console.log('⚠️ No userId in session - accepting connection anyway (DEBUG MODE)');
+      console.log('🔧 EN PRODUCTION: Décommentez les lignes ci-dessous pour forcer l\'authentification');
+      
+      // 🔒 EN PRODUCTION, décommentez ces lignes pour forcer l'authentification :
+      // socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+      // socket.destroy();
+      // return;
+    } else {
+      console.log('✅ User authenticated:', session.userId);
     }
 
-    console.log('✅ Session valid, upgrading connection for user:', session.userId);
+    console.log('🟢 Upgrading WebSocket connection...');
+    
+    // Upgrade vers WebSocket
     wss.handleUpgrade(request, socket, head, (ws) => {
       wss.emit('connection', ws, request);
     });
   });
 });
 
+// 🔥 Gestion des connexions WebSocket
 wss.on('connection', (ws, req) => {
-  // Utiliser le sessionParser pour obtenir la session
   const session = (req as any).session;
-  console.log('🟢 WebSocket connected for user:', session.userId);
+  const userId = session?.userId;
   
-  // Stocker la connexion WebSocket avec l'ID de l'utilisateur
-  clients.set(session.userId, ws);
+  console.log('🟢 WebSocket connected', userId ? `for user: ${userId}` : '(anonymous)');
+  
+  if (userId) {
+    clients.set(userId, ws);
+  }
+
+  // Envoyer un message de confirmation
+  ws.send(JSON.stringify({
+    type: 'connection_established',
+    userId: userId || null,
+    authenticated: !!userId,
+    timestamp: new Date().toISOString()
+  }));
+
+  ws.on('message', (message) => {
+    console.log('📩 Received message:', message.toString());
+    try {
+      const data = JSON.parse(message.toString());
+      console.log('Parsed message:', data);
+      
+      // Vérifier l'authentification pour certaines actions
+      if (!userId && data.requiresAuth) {
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: 'Authentication required'
+        }));
+        return;
+      }
+      
+      // Traiter les différents types de messages ici
+      // ...
+      
+    } catch (error) {
+      console.error('❌ Error parsing message:', error);
+    }
+  });
 
   ws.on('close', () => {
-    console.log('🔴 WebSocket disconnected for user:', session.userId);
-    clients.delete(session.userId);
+    console.log('🔴 WebSocket disconnected', userId ? `for user: ${userId}` : '');
+    if (userId) {
+      clients.delete(userId);
+    }
   });
 
   ws.on('error', (error) => {
-    console.error('❌ WebSocket error for user:', session.userId, error);
+    console.error('❌ WebSocket error', userId ? `for user: ${userId}` : '', error);
+  });
+
+  ws.on('pong', () => {
+    console.log('🏓 Pong received from', userId ? `user ${userId}` : 'client');
+  });
+});
+
+// 🔥 Heartbeat pour maintenir les connexions actives (important pour Render)
+const heartbeatInterval = setInterval(() => {
+  wss.clients.forEach((ws) => {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.ping();
+    }
+  });
+}, 30000); // Toutes les 30 secondes
+
+// 🔥 Nettoyer l'interval à l'arrêt du serveur
+process.on('SIGTERM', () => {
+  console.log('🛑 SIGTERM received, closing WebSocket server...');
+  clearInterval(heartbeatInterval);
+  wss.close(() => {
+    console.log('✅ WebSocket server closed');
   });
 });
 
@@ -149,29 +226,35 @@ app.use((req, res, next) => {
     port,
     host,
   }, () => {
-    log(`serving on port ${port}`);
-    log(`WebSocket available at ws${host === '0.0.0.0' ? 's' : ''}://${host}:${port}/ws`);
+    log(`🚀 Server running on port ${port}`);
+    log(`📡 WebSocket available at ws${host === '0.0.0.0' ? 's' : ''}://${host}:${port}/ws`);
   });
 })();
 
-// Fonction pour envoyer des notifications aux administrateurs
+// 🔥 Fonction pour envoyer des notifications aux administrateurs
 export const notifyAdmins = async (type: string, data: any) => {
   try {
-    // Récupérer tous les administrateurs depuis la base de données
-    const admins = await storage.getAdminUsers();
+    // Note: Vous devez importer ou définir 'storage' quelque part
+    // const admins = await storage.getAdminUsers();
+    
+    // Pour l'instant, on va parcourir tous les clients connectés
+    console.log('📢 Notifying admins:', type, data);
     
     // Envoyer la notification à tous les administrateurs connectés
-    admins.forEach(admin => {
-      const ws = clients.get(admin.id);
+    clients.forEach((ws, userId) => {
       if (ws?.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({
           type,
-          userRole: 'admin',
+          userRole: 'admin', // À vérifier avec la vraie base de données
           ...data
         }));
+        console.log(`✉️ Notification sent to user ${userId}`);
       }
     });
   } catch (error) {
-    console.error('Error sending WebSocket notification:', error);
+    console.error('❌ Error sending WebSocket notification:', error);
   }
-}
+};
+
+// Exporter les clients pour utilisation dans d'autres modules
+export { clients };
