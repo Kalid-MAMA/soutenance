@@ -33,13 +33,15 @@ const sessionParser = session({
   secret: process.env.SESSION_SECRET || 'your-secret-key',
   resave: false,
   saveUninitialized: false,
+  name: 'sessionId', // 🔥 Nom explicite du cookie
   cookie: {
-    secure: process.env.NODE_ENV === 'production',
-    httpOnly: true, // 🔥 Sécurité contre XSS
+    secure: true, // 🔥 Toujours true (même en dev si vous testez depuis HTTPS)
+    httpOnly: true,
     path: '/',
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // 🔥 Important pour CORS
-    maxAge: 24 * 60 * 60 * 1000, // 24 heures
-  }
+    sameSite: 'none', // 🔥 Requis pour cross-origin
+    maxAge: 24 * 60 * 60 * 1000,
+  },
+  proxy: true // 🔥 Important pour Render qui utilise un reverse proxy
 });
 
 app.use(sessionParser);
