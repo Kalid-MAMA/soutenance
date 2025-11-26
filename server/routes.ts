@@ -1,15 +1,15 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
-import { storage } from "./storage";
+import { storage } from "./storage.js";
 import { insertUserSchema, insertEmployeeSchema, insertSalaryRecordSchema, insertComplaintSchema, insertGradeRateSchema } from "@shared/schema";
 import { z } from "zod";
 import bcrypt from "bcrypt";
 import { Router } from 'express'
-import { db } from './db'
-import { users } from '../shared/schema'
+import { db } from './db.js'
+import { users } from '../shared/schema.js'
 import { eq } from 'drizzle-orm'
-import { generatePassword } from './utils'
-import { isAdmin } from './middleware'
+import { generatePassword } from './utils.js'
+//import { isAdmin } from './middleware'
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
@@ -19,6 +19,8 @@ import { sql } from 'drizzle-orm';
 declare module 'express-serve-static-core' {
   interface Request {
     session: {
+      id: any;
+      save: any;
       userId?: number;
       userRole?: string;
       destroy: (callback: (err?: Error) => void) => void;
@@ -142,7 +144,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       req.session.userRole = user.role;
       
       // Save session explicitly
-      req.session.save((err) => {
+      req.session.save((err: any) => {
         if (err) {
           console.error('[Auth Route] Session save error:', err);
           return res.status(500).json({ message: "Session error" });

@@ -36,6 +36,7 @@ const sessionParser = session({
   cookie: {
     secure: process.env.NODE_ENV === 'production',
     httpOnly: true, // 🔥 Sécurité contre XSS
+    path: '/',
     sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // 🔥 Important pour CORS
     maxAge: 24 * 60 * 60 * 1000, // 24 heures
   }

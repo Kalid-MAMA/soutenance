@@ -110,6 +110,9 @@ export interface ComplaintFilters {
 }
 
 export class DatabaseStorage implements IStorage {
+  getSalary(salaryId: number) {
+    throw new Error("Method not implemented.");
+  }
   async getUser(id: number): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
     return user || undefined;
