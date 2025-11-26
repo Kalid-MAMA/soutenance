@@ -5,7 +5,7 @@ import SQLiteStore from "connect-sqlite3";
 import { join } from "path";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
-import { WebSocketServer } from 'ws';
+import { WebSocketServer, WebSocket } from 'ws';
 import http from 'http';
 
 const app = express();
@@ -41,27 +41,38 @@ const sessionParser = session({
 
 app.use(sessionParser);
 
-// Configuration de WebSocket
-const wss = new WebSocketServer({ server });
+// Configuration de WebSocket avec noServer: true
+const wss = new WebSocketServer({ noServer: true });
 
 // Map pour stocker les connexions WebSocket par userId
 const clients = new Map<number, WebSocket>();
 
-wss.on('connection', (ws, req) => {
-  // Utiliser le sessionParser pour obtenir la session
-  sessionParser(req as any, {} as any, () => {
-    const session = (req as any).session;
+// Gestion de l'upgrade WebSocket
+server.on('upgrade', (request, socket, head) => {
+  sessionParser(request as any, {} as any, () => {
+    const session = (request as any).session;
+    
     if (!session?.userId) {
-      ws.close();
+      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+      socket.destroy();
       return;
     }
 
-    // Stocker la connexion WebSocket avec l'ID de l'utilisateur
-    clients.set(session.userId, ws);
-
-    ws.on('close', () => {
-      clients.delete(session.userId);
+    wss.handleUpgrade(request, socket, head, (ws) => {
+      wss.emit('connection', ws, request);
     });
+  });
+});
+
+wss.on('connection', (ws, req) => {
+  // Utiliser le sessionParser pour obtenir la session
+  const session = (req as any).session;
+  
+  // Stocker la connexion WebSocket avec l'ID de l'utilisateur
+  clients.set(session.userId, ws);
+
+  ws.on('close', () => {
+    clients.delete(session.userId);
   });
 });
 
@@ -96,7 +107,7 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  const server = await registerRoutes(app);
+  await registerRoutes(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
@@ -119,14 +130,14 @@ app.use((req, res, next) => {
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || '5000', 10);
-const host = process.env.NODE_ENV === 'production' ? '0.0.0.0' : 'localhost';
+  const host = process.env.NODE_ENV === 'production' ? '0.0.0.0' : 'localhost';
 
-server.listen({
-  port,
-  host,
-}, () => {
-  log(`serving on port ${port}`);
-});
+  server.listen({
+    port,
+    host,
+  }, () => {
+    log(`serving on port ${port}`);
+  });
 })();
 
 // Fonction pour envoyer des notifications aux administrateurs
