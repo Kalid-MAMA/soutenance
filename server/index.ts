@@ -118,13 +118,15 @@ app.use((req, res, next) => {
   // ALWAYS serve the app on port 5000
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
-  const port = 5000;
-  server.listen({
-    port,
-    host: "localhost",
-  }, () => {
-    log(`serving on port ${port}`);
-  });
+  const port = parseInt(process.env.PORT || '5000', 10);
+const host = process.env.NODE_ENV === 'production' ? '0.0.0.0' : 'localhost';
+
+server.listen({
+  port,
+  host,
+}, () => {
+  log(`serving on port ${port}`);
+});
 })();
 
 // Fonction pour envoyer des notifications aux administrateurs
