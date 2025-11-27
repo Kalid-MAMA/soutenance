@@ -11,6 +11,15 @@ import http from 'http';
 const app = express();
 const server = http.createServer(app);
 
+// 🔥 Health check endpoint pour Render
+app.get('/api/health', (req, res) => {
+  res.status(200).json({ 
+    status: 'ok', 
+    timestamp: new Date().toISOString(),
+    websocket: 'available'
+  });
+});
+
 // Configuration CORS
 app.use(cors({
   origin: true, // Autoriser toutes les origines en développement
@@ -56,9 +65,11 @@ const clients = new Map<number, WebSocket>();
 server.on('upgrade', (request, socket, head) => {
   console.log('🔵 WebSocket upgrade request received');
   console.log('URL:', request.url);
-  console.log('Headers:', JSON.stringify(request.headers, null, 2));
+  console.log('Method:', request.method);
+  console.log('Connection header:', request.headers['connection']);
+  console.log('Upgrade header:', request.headers['upgrade']);
   
-  // Vérifier que c'est bien une requête WebSocket pour /ws
+  // Vérifier que c'est bien une requête WebSocket
   if (request.url !== '/ws') {
     console.log('❌ Invalid WebSocket path:', request.url);
     socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
@@ -66,20 +77,23 @@ server.on('upgrade', (request, socket, head) => {
     return;
   }
 
+  // Vérifier les headers WebSocket
+  if (!request.headers.upgrade || request.headers.upgrade.toLowerCase() !== 'websocket') {
+    console.log('❌ Not a WebSocket upgrade request');
+    socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
+    socket.destroy();
+    return;
+  }
+
+  console.log('✅ Valid WebSocket upgrade request');
+  
   // Parser la session
   sessionParser(request as any, {} as any, () => {
     const session = (request as any).session;
     console.log('📋 Session data:', JSON.stringify(session, null, 2));
     
-    // ⚠️ MODE DEBUG : Accepter même sans session pour tester
     if (!session?.userId) {
       console.log('⚠️ No userId in session - accepting connection anyway (DEBUG MODE)');
-      console.log('🔧 EN PRODUCTION: Décommentez les lignes ci-dessous pour forcer l\'authentification');
-      
-      // 🔒 EN PRODUCTION, décommentez ces lignes pour forcer l'authentification :
-      // socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-      // socket.destroy();
-      // return;
     } else {
       console.log('✅ User authenticated:', session.userId);
     }
@@ -88,6 +102,7 @@ server.on('upgrade', (request, socket, head) => {
     
     // Upgrade vers WebSocket
     wss.handleUpgrade(request, socket, head, (ws) => {
+      console.log('✅ WebSocket upgrade successful');
       wss.emit('connection', ws, request);
     });
   });

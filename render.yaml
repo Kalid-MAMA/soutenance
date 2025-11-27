@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: soutenance
+    env: node
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SESSION_SECRET
+        generateValue: true
+    # 🔥 Configuration critique pour WebSocket
+    healthCheckPath: /api/health
+    autoDeploy: true
